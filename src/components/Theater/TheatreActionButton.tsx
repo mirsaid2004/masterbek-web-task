@@ -1,12 +1,16 @@
-import { type ButtonHTMLAttributes, type ReactNode } from "react";
-import { cn } from "../lib/utils";
-import { useTheatre } from "../context/TheatreContext";
+import { useTheatre } from "@/context/TheatreContext";
+import { cn } from "@/lib/utils";
+import type { ButtonHTMLAttributes, ReactNode } from "react";
 
-type ActionButtonProps = {
+type TheatreActionButtonProps = {
   children: ReactNode;
 } & ButtonHTMLAttributes<HTMLButtonElement>;
 
-function ActionButton({ children, className, ...props }: ActionButtonProps) {
+function TheatreActionButton({
+  children,
+  className,
+  ...props
+}: TheatreActionButtonProps) {
   const { glassmorphismClasses } = useTheatre();
 
   return (
@@ -23,4 +27,4 @@ function ActionButton({ children, className, ...props }: ActionButtonProps) {
   );
 }
 
-export default ActionButton;
+export default TheatreActionButton;
