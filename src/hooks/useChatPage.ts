@@ -26,17 +26,22 @@ export function useChatPage() {
   // Modal state for page refresh
   const [showInteractionModal, setShowInteractionModal] = useState(false);
 
-  // Check for page reload and show modal
+  // Check video is paused
   useEffect(() => {
-    const navigationEntries = window.performance.getEntriesByType(
-      "navigation"
-    ) as PerformanceNavigationTiming[];
-    const isReload =
-      navigationEntries.length > 0 && navigationEntries[0].type === "reload";
+    const checkVideoPlaying = () => {
+      const video = primaryVideoRef.current;
+      if (video) {
+        const isPlaying = !video.paused && !video.ended && video.readyState > 2;
 
-    if (isReload) {
-      setShowInteractionModal(true);
-    }
+        if (!isPlaying) {
+          setShowInteractionModal(true);
+        }
+      }
+    };
+
+    // Small delay to let video attempt autoplay
+    const timer = setTimeout(checkVideoPlaying, 500);
+    return () => clearTimeout(timer);
   }, []);
 
   // Handle user interaction to start video
@@ -74,40 +79,18 @@ export function useChatPage() {
     onError: handleSpeechError,
   });
 
-  // ✅ FIX: Handle initial video play on mount
-  useEffect(() => {
-    // Use a small timeout to ensure refs are attached
-    const timer = setTimeout(() => {
-      if (primaryVideoRef.current) {
-        primaryVideoRef.current.play().catch((error) => {
-          console.error("Failed to autoplay on mount:", error);
-        });
-      }
-    }, 100);
-
-    return () => clearTimeout(timer);
-  }, []); // Run only once on mount
-
   // Handle video state changes with double buffer
   useEffect(() => {
     const newVideoSrc = VIDEO_FILES[state];
+
     if (newVideoSrc !== currentVideo) {
       setCurrentVideo(newVideoSrc);
 
-      const currentVideoElement = isPrimaryVisible
-        ? primaryVideoRef.current
-        : bufferVideoRef.current;
       const bufferVideo = isPrimaryVisible
         ? bufferVideoRef.current
         : primaryVideoRef.current;
 
       if (bufferVideo) {
-        // pause and reset current video before loading new one to prevent overlap
-        if (currentVideoElement) {
-          currentVideoElement.pause();
-          currentVideoElement.currentTime = 0;
-        }
-
         bufferVideo.src = newVideoSrc;
         bufferVideo.load();
 
