@@ -1,54 +1,71 @@
-import { Fullscreen, X } from "lucide-react";
+import { Fullscreen, Loader, X } from "lucide-react";
 import Theater from "../components/Theater";
 import InteractionModal from "../components/InteractionModal";
 import { useChatPage } from "../hooks/useChatPage";
 import { cn } from "@/lib/utils";
+import { handleFullscreen } from "@/lib/full-screen";
+import { VIDEO_FILES } from "@/constants/video-files";
 
 function ChatPage() {
   const {
-    state,
+    chatState,
     transcript,
-    currentVideo,
     primaryVideoRef,
     bufferVideoRef,
     isPrimaryVisible,
+    isLoading,
     showInteractionModal,
     handleVideoEnd,
     handleInteraction,
     handleExit,
-    handleFullscreen,
   } = useChatPage();
+
+  const isCurrentVideoLoading = isLoading[chatState];
+
+  const primaryVideoClasses = cn(
+    "absolute inset-0 w-full h-full object-cover transition-opacity duration-500",
+    isPrimaryVisible ? "opacity-100" : "opacity-0 pointer-events-none"
+  );
+
+  const bufferVideoClasses = cn(
+    "absolute inset-0 w-full h-full object-cover transition-opacity duration-500",
+    !isPrimaryVisible ? "opacity-100" : "opacity-0 pointer-events-none"
+  );
 
   return (
     <div className="relative w-full h-screen bg-black overflow-hidden">
-      {/* Primary Video */}
+      {/* Primary Video - Visible by default */}
       <video
         ref={primaryVideoRef}
-        className={cn(
-          `absolute inset-0 w-full h-full object-cover transition-opacity duration-500`,
-          isPrimaryVisible ? "opacity-100" : "opacity-0"
-        )}
-        src={currentVideo}
+        className={primaryVideoClasses}
+        src={VIDEO_FILES.GREETING}
+        preload="auto"
         autoPlay
         muted={false}
-        loop={state === "LISTENING"}
         playsInline
-        onEnded={handleVideoEnd}
+        onEnded={isPrimaryVisible ? handleVideoEnd : undefined}
       />
 
-      {/* Buffer Video */}
+      {/* Buffer Video - Hidden, preloading next video */}
       <video
         ref={bufferVideoRef}
-        className={cn(
-          `absolute inset-0 w-full h-full object-cover transition-opacity duration-500 `,
-          !isPrimaryVisible ? "opacity-100" : "opacity-0"
-        )}
+        className={bufferVideoClasses}
         autoPlay
+        preload="auto"
         muted={false}
-        loop={state === "LISTENING"}
         playsInline
-        onEnded={handleVideoEnd}
+        onEnded={!isPrimaryVisible ? handleVideoEnd : undefined}
       />
+
+      {/* Loading Overlay - Shows when current video is not ready */}
+      {isCurrentVideoLoading && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm z-40">
+          <div className="flex flex-col items-center gap-4">
+            <Loader className="w-12 h-12 text-cyan-400 animate-spin" />
+            <p className="text-white/70 text-sm">Loading video...</p>
+          </div>
+        </div>
+      )}
 
       {/* Interaction Modal - Shows on page refresh */}
       {showInteractionModal && (
@@ -74,9 +91,9 @@ function ChatPage() {
           </Theater.Actions>
         </Theater.TopBar>
 
-        <Theater.Status state={state} transcript={transcript} />
+        <Theater.Status state={chatState} transcript={transcript} />
 
-        <Theater.Microphone isActive={state === "LISTENING"} />
+        <Theater.Microphone isActive={chatState === "LISTENING"} />
       </Theater>
     </div>
   );

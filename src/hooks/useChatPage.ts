@@ -1,68 +1,88 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import type { AppState } from "../types";
-import { VIDEO_FILES } from "../types";
+import { VIDEO_FILES } from "@/constants/video-files";
 import { useSpeechRecognition } from "./useSpeechRecognition";
+import { useVideoCache } from "@/context/VideoCacheContext";
+import useVideoLoader from "./useVideoLoader";
+
+const additionalVideos: AppState[] = [
+  "GREETING",
+  "LISTENING",
+  "GOODBYE",
+  "GENERAL",
+  "FALLBACK",
+  "PROMPT",
+  "WEATHER",
+  "EASTER_EGG",
+];
 
 export function useChatPage() {
   const navigate = useNavigate();
-  const [state, setState] = useState<AppState>("GREETING");
+  const { isLoading, getVideo } = useVideoCache();
+  const [chatState, setChatState] = useState<AppState>("GREETING");
   const [transcript, setTranscript] = useState<string>("");
-  const [currentVideo, setCurrentVideo] = useState<string>(
-    VIDEO_FILES.GREETING
-  );
 
   // Dual video buffer refs
   const primaryVideoRef = useRef<HTMLVideoElement>(null);
   const bufferVideoRef = useRef<HTMLVideoElement>(null);
   const [isPrimaryVisible, setIsPrimaryVisible] = useState(true);
 
-  // Track the state of the video that's currently visible
+  // current state tracker refs
   const currentStateRef = useRef<AppState>("GREETING");
+  const isTransitioningRef = useRef<boolean>(false);
+  const currentVideoSrcRef = useRef<string>("");
 
-  // Silence detection timer
+  // silence detection timer
   const silenceTimerRef = useRef<number | null>(null);
+  const silenceCountRef = useRef<number>(0);
 
-  // Modal state for page refresh
+  // modal state for interaction on page refresh
   const [showInteractionModal, setShowInteractionModal] = useState(false);
 
-  // Check video is paused
-  useEffect(() => {
-    const checkVideoPlaying = () => {
-      const video = primaryVideoRef.current;
-      if (video) {
-        const isPlaying = !video.paused && !video.ended && video.readyState > 2;
-
-        if (!isPlaying) {
-          setShowInteractionModal(true);
-        }
-      }
-    };
-
-    // Small delay to let video attempt autoplay
-    const timer = setTimeout(checkVideoPlaying, 500);
-    return () => clearTimeout(timer);
-  }, []);
-
-  // Handle user interaction to start video
   const handleInteraction = useCallback(() => {
     setShowInteractionModal(false);
-
-    // Play the primary video after user interaction
-    if (primaryVideoRef.current) {
-      primaryVideoRef.current.play().catch((error) => {
-        console.error("Failed to play video after interaction:", error);
+    const visibleVideo = isPrimaryVisible
+      ? primaryVideoRef.current
+      : bufferVideoRef.current;
+    if (visibleVideo) {
+      visibleVideo.play().catch((error) => {
+        console.error("Failed to play video:", error);
       });
     }
+  }, [isPrimaryVisible]);
+
+  // Handle video end - only process from visible video
+  const handleVideoEnd = useCallback(() => {
+    const endedState = currentStateRef.current;
+
+    if (
+      endedState === "GREETING" ||
+      endedState === "WEATHER" ||
+      endedState === "GENERAL" ||
+      endedState === "FALLBACK" ||
+      endedState === "PROMPT" ||
+      endedState === "EASTER_EGG"
+    ) {
+      setChatState("LISTENING");
+      setTranscript("");
+    } else if (endedState === "GOODBYE") {
+      navigate("/");
+    }
+  }, [navigate]);
+
+  const handleExit = useCallback(() => {
+    setChatState("GOODBYE");
   }, []);
 
-  // Handle state transitions based on speech
   const handleSpeechMatch = useCallback((newState: AppState) => {
     if (silenceTimerRef.current) {
       clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = null;
     }
-    setState(newState);
+    // Reset silence count on successful match
+    silenceCountRef.current = 0;
+    setChatState(newState);
   }, []);
 
   const handleTranscript = useCallback((text: string) => {
@@ -70,7 +90,7 @@ export function useChatPage() {
   }, []);
 
   const handleSpeechError = useCallback(() => {
-    setState("FALLBACK");
+    setChatState("FALLBACK");
   }, []);
 
   const { startListening, stopListening } = useSpeechRecognition({
@@ -79,120 +99,144 @@ export function useChatPage() {
     onError: handleSpeechError,
   });
 
-  // Handle video state changes with double buffer
+  // Effect: load all videos on mount
+  useVideoLoader(additionalVideos);
+
+  // Effect: check if video is paused (for autoplay issues)
   useEffect(() => {
-    const newVideoSrc = VIDEO_FILES[state];
-
-    if (newVideoSrc !== currentVideo) {
-      setCurrentVideo(newVideoSrc);
-
-      const bufferVideo = isPrimaryVisible
-        ? bufferVideoRef.current
-        : primaryVideoRef.current;
-
-      if (bufferVideo) {
-        bufferVideo.src = newVideoSrc;
-        bufferVideo.load();
-
-        bufferVideo.oncanplaythrough = () => {
-          // Update the current state ref when video becomes visible
-          currentStateRef.current = state;
-
-          // Swap videos with smooth transition
-          setIsPrimaryVisible(!isPrimaryVisible);
-
-          bufferVideo.play().catch((error) => {
-            console.error("Failed to play buffer video:", error);
-          });
-        };
+    const checkVideoPlaying = () => {
+      const visibleVideo = isPrimaryVisible
+        ? primaryVideoRef.current
+        : bufferVideoRef.current;
+      if (visibleVideo) {
+        const isPlaying =
+          !visibleVideo.paused &&
+          !visibleVideo.ended &&
+          visibleVideo.readyState > 2;
+        if (!isPlaying) {
+          setShowInteractionModal(true);
+        }
       }
-    }
-  }, [state, currentVideo, isPrimaryVisible]);
+    };
 
-  // Handle LISTENING state with silence detection
+    const timer = setTimeout(checkVideoPlaying, 500);
+    return () => clearTimeout(timer);
+  }, [isPrimaryVisible]);
+
+  // Effect: handle chat state changes with double buffer
   useEffect(() => {
-    if (state === "LISTENING") {
+    if (isTransitioningRef.current) return;
+
+    const newVideoSrc = VIDEO_FILES[chatState];
+
+    // Prevent reloading same video
+    if (newVideoSrc === currentVideoSrcRef.current) return;
+
+    isTransitioningRef.current = true;
+    currentVideoSrcRef.current = newVideoSrc;
+
+    // Get the buffer video (hidden one)
+    const bufferVideo = isPrimaryVisible
+      ? bufferVideoRef.current
+      : primaryVideoRef.current;
+    const visibleVideo = isPrimaryVisible
+      ? primaryVideoRef.current
+      : bufferVideoRef.current;
+
+    if (!bufferVideo) {
+      isTransitioningRef.current = false;
+      return;
+    }
+
+    // Stop and clear the visible video to prevent conflicts
+    if (visibleVideo) {
+      visibleVideo.pause();
+    }
+
+    const cachedVideo = getVideo(chatState);
+
+    if (!cachedVideo) {
+      console.warn(`Video for state ${chatState} not found in cache`);
+      isTransitioningRef.current = false;
+      return;
+    }
+
+    const loadAndPlayVideo = () => {
+      if (!bufferVideo) return;
+
+      bufferVideo.src = cachedVideo.src;
+      bufferVideo.currentTime = 0;
+
+      bufferVideo
+        .play()
+        .then(() => {
+          currentStateRef.current = chatState;
+
+          setIsPrimaryVisible(!isPrimaryVisible);
+          isTransitioningRef.current = false;
+        })
+        .catch((error) => {
+          console.error("Failed to play buffer video:", error);
+          isTransitioningRef.current = false;
+        });
+    };
+
+    // Check if video is already ready
+    if (cachedVideo.readyState >= 2) {
+      loadAndPlayVideo();
+    } else {
+      const handleCanPlay = () => {
+        loadAndPlayVideo();
+        cachedVideo.removeEventListener("canplaythrough", handleCanPlay);
+      };
+
+      cachedVideo.addEventListener("canplaythrough", handleCanPlay, {
+        once: true,
+      });
+    }
+
+    return () => {
+      cachedVideo.removeEventListener("canplaythrough", () => {});
+    };
+  }, [chatState, getVideo, isPrimaryVisible]);
+
+  // Effect: handle LISTENING state with silence detection
+  useEffect(() => {
+    if (chatState === "LISTENING") {
       startListening();
 
-      // Set 8-second silence timer
-      silenceTimerRef.current = window.setTimeout(() => {
+      silenceTimerRef.current = setTimeout(() => {
         stopListening();
-        setState("PROMPT");
-      }, 8000);
 
-      return () => {
-        if (silenceTimerRef.current) {
-          clearTimeout(silenceTimerRef.current);
+        if (silenceCountRef.current >= 1) {
+          setChatState("GOODBYE");
+        } else {
+          silenceCountRef.current += 1;
+          setChatState("PROMPT");
         }
-      };
+      }, 10000);
     } else {
       stopListening();
+    }
+
+    return () => {
       if (silenceTimerRef.current) {
         clearTimeout(silenceTimerRef.current);
         silenceTimerRef.current = null;
       }
-    }
-  }, [state, startListening, stopListening]);
-
-  // Handle video end events
-  const handleVideoEnd = useCallback(
-    (e: React.SyntheticEvent<HTMLVideoElement>) => {
-      const videoElement = e.currentTarget;
-
-      // Only process if this is the currently visible video
-      const isVisible =
-        (videoElement === primaryVideoRef.current && isPrimaryVisible) ||
-        (videoElement === bufferVideoRef.current && !isPrimaryVisible);
-
-      if (!isVisible) {
-        return;
-      }
-
-      // Check which state this video represents
-      const endedState = currentStateRef.current;
-
-      if (
-        endedState === "GREETING" ||
-        endedState === "WEATHER" ||
-        endedState === "GENERAL" ||
-        endedState === "FALLBACK" ||
-        endedState === "PROMPT"
-      ) {
-        setState("LISTENING");
-        setTranscript("");
-      } else if (endedState === "GOODBYE") {
-        // Only navigate when the GOODBYE video actually finishes
-        navigate("/");
-      }
-    },
-    [isPrimaryVisible, navigate]
-  );
-
-  const handleExit = useCallback(() => {
-    setState("GOODBYE");
-  }, []);
-
-  const handleFullscreen = useCallback(() => {
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen();
-    } else {
-      if (document.exitFullscreen) {
-        document.exitFullscreen();
-      }
-    }
-  }, []);
+    };
+  }, [chatState, startListening, stopListening]);
 
   return {
-    state,
+    chatState,
     transcript,
-    currentVideo,
     primaryVideoRef,
     bufferVideoRef,
     isPrimaryVisible,
+    isLoading,
     showInteractionModal,
     handleVideoEnd,
     handleInteraction,
     handleExit,
-    handleFullscreen,
   };
 }

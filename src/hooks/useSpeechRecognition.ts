@@ -32,7 +32,15 @@ export const useSpeechRecognition = ({
     recognition.lang = "en-US";
 
     recognition.onresult = (event: any) => {
-      const transcript = event.results[0][0].transcript.toLowerCase().trim();
+      const result = event.results[0][0];
+      const transcript = result.transcript.toLowerCase().trim();
+      const confidence = result.confidence;
+
+      if (confidence < 0.7) {
+        onMatch("FALLBACK");
+        return;
+      }
+
       onTranscript(transcript);
 
       // Match keywords to states
@@ -42,6 +50,11 @@ export const useSpeechRecognition = ({
         onMatch("GOODBYE");
       } else if (transcript.includes("hello") || transcript.includes("hi")) {
         onMatch("GREETING");
+      } else if (
+        transcript.includes("position") ||
+        transcript.includes("applying for")
+      ) {
+        onMatch("EASTER_EGG");
       } else {
         onMatch("GENERAL");
       }
