@@ -1,4 +1,10 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useLayoutEffect,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import type { AppState } from "../types";
 import { VIDEO_FILES } from "@/constants/video-files";
@@ -124,7 +130,7 @@ export function useChatPage() {
   }, [isPrimaryVisible]);
 
   // Effect: handle chat state changes with double buffer
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (isTransitioningRef.current) return;
 
     const newVideoSrc = VIDEO_FILES[chatState];
@@ -158,13 +164,14 @@ export function useChatPage() {
     if (!cachedVideo) {
       console.warn(`Video for state ${chatState} not found in cache`);
       isTransitioningRef.current = false;
+      currentVideoSrcRef.current = "";
       return;
     }
 
     const loadAndPlayVideo = () => {
       if (!bufferVideo) return;
 
-      bufferVideo.src = cachedVideo.src;
+      bufferVideo.src = cachedVideo;
       bufferVideo.currentTime = 0;
 
       bufferVideo
@@ -181,24 +188,8 @@ export function useChatPage() {
         });
     };
 
-    // Check if video is already ready
-    if (cachedVideo.readyState >= 2) {
-      loadAndPlayVideo();
-    } else {
-      const handleCanPlay = () => {
-        loadAndPlayVideo();
-        cachedVideo.removeEventListener("canplaythrough", handleCanPlay);
-      };
-
-      cachedVideo.addEventListener("canplaythrough", handleCanPlay, {
-        once: true,
-      });
-    }
-
-    return () => {
-      cachedVideo.removeEventListener("canplaythrough", () => {});
-    };
-  }, [chatState, getVideo, isPrimaryVisible]);
+    loadAndPlayVideo();
+  }, [chatState, getVideo, isPrimaryVisible, isLoading]);
 
   // Effect: handle LISTENING state with silence detection
   useEffect(() => {
@@ -238,5 +229,6 @@ export function useChatPage() {
     handleVideoEnd,
     handleInteraction,
     handleExit,
+    getVideo,
   };
 }

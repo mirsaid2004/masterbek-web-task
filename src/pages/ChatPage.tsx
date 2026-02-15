@@ -4,7 +4,6 @@ import InteractionModal from "../components/InteractionModal";
 import { useChatPage } from "../hooks/useChatPage";
 import { cn } from "@/lib/utils";
 import { handleFullscreen } from "@/lib/full-screen";
-import { VIDEO_FILES } from "@/constants/video-files";
 
 function ChatPage() {
   const {
@@ -38,7 +37,6 @@ function ChatPage() {
       <video
         ref={primaryVideoRef}
         className={primaryVideoClasses}
-        src={VIDEO_FILES.GREETING}
         preload="auto"
         autoPlay
         muted={false}

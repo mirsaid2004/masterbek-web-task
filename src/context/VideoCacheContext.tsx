@@ -12,7 +12,7 @@ import { VIDEO_FILES } from "@/constants/video-files";
 interface VideoCacheContextValue {
   isLoading: Partial<Record<AppState, boolean>>;
   loadVideos: (states: AppState[]) => Promise<void>;
-  getVideo: (state: AppState) => HTMLVideoElement | null;
+  getVideo: (state: AppState) => string | null;
 }
 
 const VideoCacheContext = createContext<VideoCacheContextValue | undefined>(
@@ -20,7 +20,7 @@ const VideoCacheContext = createContext<VideoCacheContextValue | undefined>(
 );
 
 export function VideoCacheProvider({ children }: { children: ReactNode }) {
-  const videoCacheRef = useRef<Map<AppState, HTMLVideoElement>>(new Map());
+  const videoCacheRef = useRef<Map<AppState, string>>(new Map());
   const pendingVideosRef = useRef<Set<AppState>>(new Set());
   const [isLoading, setIsLoading] = useState<
     Partial<Record<AppState, boolean>>
@@ -49,41 +49,21 @@ export function VideoCacheProvider({ children }: { children: ReactNode }) {
         // Mark as pending
         pendingVideosRef.current.add(state);
 
-        const video = document.createElement("video");
-        video.src = VIDEO_FILES[state];
-        video.preload = "auto";
-        video.muted = false;
-        video.playsInline = true;
-        video.crossOrigin = "anonymous";
-        video.style.display = "none";
-        document.body.appendChild(video);
-
-        const handleCanPlayThrough = () => {
-          pendingVideosRef.current.delete(state);
-          videoCacheRef.current.set(state, video);
-          setIsLoading((prev) => ({ ...prev, [state]: false }));
-          video.removeEventListener("canplaythrough", handleCanPlayThrough);
-          resolve();
-        };
-
-        const handleError = () => {
-          pendingVideosRef.current.delete(state);
-          console.error(`Failed to load video: ${state}`);
-          setIsLoading((prev) => ({ ...prev, [state]: false }));
-          video.removeEventListener("error", handleError);
-          // Remove the failed video element
-          if (document.body.contains(video)) {
-            document.body.removeChild(video);
-          }
-          resolve();
-        };
-
-        video.addEventListener("canplaythrough", handleCanPlayThrough, {
-          once: true,
-        });
-        video.addEventListener("error", handleError, { once: true });
-
-        video.load();
+        fetch(VIDEO_FILES[state])
+          .then((response) => response.blob())
+          .then((blob) => {
+            const videoUrl = URL.createObjectURL(blob);
+            videoCacheRef.current.set(state, videoUrl);
+            pendingVideosRef.current.delete(state);
+            setIsLoading((prev) => ({ ...prev, [state]: false }));
+            resolve();
+          })
+          .catch((error) => {
+            console.error(`Failed to load video ${state}:`, error);
+            pendingVideosRef.current.delete(state);
+            setIsLoading((prev) => ({ ...prev, [state]: false }));
+            resolve();
+          });
       });
     });
 
