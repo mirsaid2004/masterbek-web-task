@@ -17,6 +17,7 @@ function ChatPage() {
     handleVideoEnd,
     handleInteraction,
     handleExit,
+    getVideo,
   } = useChatPage();
 
   const isCurrentVideoLoading = isLoading[chatState];
@@ -37,6 +38,7 @@ function ChatPage() {
       <video
         ref={primaryVideoRef}
         className={primaryVideoClasses}
+        {...(chatState == 'GREETING' ? {src: getVideo('GREETING') || ''} : {})}
         preload="auto"
         autoPlay
         muted={false}
