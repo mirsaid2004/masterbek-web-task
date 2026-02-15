@@ -21,11 +21,12 @@ Borrowed from game development, we use **two stacked `<video>` elements**:
 -   **Buffer**: Hidden (using opacity 0), preloading the *next* video.
 -   **The Swap**: When the state changes, the hidden buffer loads the new video. Once ready (`canplay`), we cross-fade opacities. The user never sees a loading spinner during conversation.
 
-#### B. HTML5 Preload Strategy
-To ensure videos are ready for instant playback:
-1.  **DOM Preloading**: We create hidden `HTMLVideoElement` instances (`document.createElement('video')`) for each state.
-2.  **Memory Cache**: These video elements are stored in a `Map` within our React Context.
-3.  **Browser Caching**: By setting `preload="auto"`, the browser downloads and caches the video file. Since our videos are lightweight (3-10MB), this ensures they are available immediately without complex blob handling.
+#### B. Blob URL Caching
+To prevent the browser from re-fetching videos or creating duplicate requests (which caused black screens on deployment):
+1.  **Fetch & Blob**: We fetch video files as binary `Blob` data using `fetch()`.
+2.  **Object URLs**: We convert these blobs into local Object URLs (`blob:http://...`).
+3.  **Memory Cache**: These lightweight strings are stored in a `Map`.
+4.  **Instant Access**: Setting `video.src = blobUrl` is instantaneous, bypassing the network entirely for subsequent plays. This guarantees the video is "ready" before we even try to play it.
 
 #### C. Race Condition Handling
 We tracking pending video loads (`pendingVideosRef`) to prevent duplicate DOM elements or network requests if multiple components request the same video simultaneously.
@@ -55,7 +56,7 @@ We implement a "Two-Strike" rule for silence:
 | Feature | Status | Implementation Detail |
 | :--- | :--- | :--- |
 | Seamless Video Switching | ✅ | Double Video Buffer + Opacity Fades |
-| Zero-Latency Playback | ✅ | HTML5 Preload Strategy |
+| Zero-Latency Playback | ✅ | Blob URL Pre-caching strategy |
 | Voice Recognition | ✅ | Web Speech API with keyword mapping |
 | Mobile Support | ✅ | `playsInline` + Touch UI |
 | Visual Feedback | ✅ | Pulsing Mic Indicator & Transcript Bubble |
@@ -66,16 +67,16 @@ We implement a "Two-Strike" rule for silence:
 ### 4. Challenges & Solutions
 
 #### 🔴 Challenge: The "Black Screen" Flash
-**Problem**: When switching `src` on a single video element, the browser clears the frame, showing black for ~200ms.
-**Solution**: **Double Buffering**. We keep the old video visible until the exact millisecond the new video emits `canplay`.
+**Problem**: When switching `src` on a single video element, the browser clears the frame, showing black for ~200ms. On deployment, slow buffering made this worse.
+**Solution**: **Double Buffering** + **Blob Caching**. We keep the old video visible until the new video is ready. Using Blobs ensures "ready" means "instantly ready".
 
 #### 🔴 Challenge: Duplicate Video Elements
-**Problem**: The caching context was creating multiple `<video>` preloaders for the same file if `loadVideos` was called rapidly.
-**Solution**: Implemented a `pendingVideosRef` set to track *in-flight* requests. If a video is currently fetching, subsequent requests wait for the existing promise.
+**Problem**: The caching context was creating multiple `<video>` preloaders for the same file.
+**Solution**: Implemented a `pendingVideosRef` set to track *in-flight* requests.
 
-#### 🔴 Challenge: Video Readiness
-**Problem**: Playing a video before it has enough data causes buffering.
-**Solution**: We use the `canplaythrough` event on our preloaded video elements to confirm they are ready before adding them to the cache map.
+#### 🔴 Challenge: Resource Contention
+**Problem**: Multiple hidden video elements fighting for bandwidth/decoders caused stalling.
+**Solution**: Switched to **Blob URLs**. Instead of asking the browser to manage 10 `<video>` elements, we download the raw data once and feed it to just the 2 active video elements.
 
 ## 🚀 Setup Instructions
 
